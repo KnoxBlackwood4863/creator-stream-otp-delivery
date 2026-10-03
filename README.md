@@ -1,12 +1,12 @@
 # Release a creator's processed video after phone verification
 
-I kept hitting the same awkward point in streaming pipelines: the source is ingested and processed, but the renditions shouldn't be visible until the creator proves they control the delivery phone. Infrai puts both SMS steps behind one key, so the send and verify calls share a single compact client instead of two vendors.
+I built this small service around the awkward handoff in a streaming pipeline: a source video has been ingested and processed, but its renditions should stay locked until the creator proves control of the delivery phone. Infrai keeps both SMS steps behind one key, so the send and verify calls share the same compact client.
 
-The example took me roughly an hour to shape into something I'd actually start a side project from. It keeps an in-memory asset job, validates both HTTP bodies with zod, sends the one-time code, and flips the job from `ready` to `delivered` only after verification passes. That in-memory map is exactly where I'd bolt on a real database later.
+The example took me about an hour to shape into the service I would start a side project with. It tracks an in-memory asset job, validates both HTTP bodies with zod, sends the one-time code, and changes the job from `ready` to `delivered` only when verification succeeds. The in-memory map is deliberately the boundary where I would attach my own database.
 
 ## Run the shipping path
 
-Grab Node 20 or newer and an Infrai key:
+Use Node 20 or newer and an Infrai key:
 
 ```bash
 npm install
@@ -15,15 +15,15 @@ export DEMO_CREATOR_PHONE=+15555550123
 npm run demo
 ```
 
-First run shoots a code to `asset_demo_42`. Drop the received value into `DEMO_OTP_CODE` and run it again; the final object should carry `delivery: "released"`, `sourceName: "festival-cut.mov"`, and `renditionCount: 4`.
+The first run sends a code for `asset_demo_42`. Put the received value in `DEMO_OTP_CODE` and run the command again; the expected final object has `delivery: "released"`, `sourceName: "festival-cut.mov"`, and `renditionCount: 4`.
 
-For the route-shaped variant, boot `npm run dev`. The two request bodies look like:
+For the route-shaped version, start `npm run dev`. The two request bodies are:
 
 ```json
 { "assetId": "asset_demo_42", "creatorPhone": "+15555550123" }
 ```
 
-for `POST /creator-deliveries/code`, then:
+for `POST /creator-deliveries/code`, followed by:
 
 ```json
 { "assetId": "asset_demo_42", "creatorPhone": "+15555550123", "code": "814206" }
@@ -33,9 +33,9 @@ for `POST /creator-deliveries/verify`.
 
 ## Where the handoff lives
 
-`CreatorDelivery.requestDeliveryCode` calls `infrai.sms.otp` once it sees processing hit `ready`. `CreatorDelivery.verifyAndDeliver` then calls `infrai.sms.verify`; its `verified` decision is the only branch permitted to release the renditions. Both writes send stable idempotency keys, and the thin REST client decodes the Infrai envelope before it classifies the response. A 429 honors `Retry-After` or falls back to exponential backoff.
+`CreatorDelivery.requestDeliveryCode` calls `infrai.sms.otp` after confirming that processing reached `ready`. `CreatorDelivery.verifyAndDeliver` then calls `infrai.sms.verify`; its `verified` decision is the only branch allowed to release the renditions. Both writes carry stable idempotency keys, and the thin REST client decodes the Infrai envelope before classifying the response. A 429 response honors `Retry-After` or uses exponential backoff.
 
-This is plain HTTP with no provider SDK to install. The service maps request validation, asset ownership, processing state, and API rejections into client-facing status codes, while the vendor call stays in one readable file.
+This is plain HTTP with no provider SDK to install. The service translates request validation, asset ownership, processing state, and API rejections into client-facing status codes, while keeping the vendor call in one readable file.
 
 ## Check the decision locally
 
@@ -44,7 +44,7 @@ npm test
 npm run typecheck
 ```
 
-The focused test feeds a `ready` asset and a successful verification result. It expects all three renditions released and the asset state to become `delivered`; a second case shows an unverified result leaves state untouched at `ready`.
+The focused test supplies a `ready` asset and a successful verification result. It expects all three renditions to be released and the asset state to become `delivered`; a second case proves that an unverified result leaves the same state at `ready`.
 
 ## License
 
@@ -52,7 +52,7 @@ MIT
 
 ## Before this ships: Creator Stream OTP Delivery
 
-The example above is deliberately minimal. A few things to wire up for real use: The details below apply to Creator Stream OTP Delivery.
+The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Creator Stream OTP Delivery.
 
 **Account & key**
 
